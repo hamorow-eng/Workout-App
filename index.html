@@ -19,7 +19,8 @@ body {
   background: #0f0f0f;
   color: white;
   -webkit-font-smoothing: antialiased;
-  padding-bottom: 90px;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .section { display: none; padding: 20px; animation: fadeIn .25s ease; }
