@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Workout App</title>
+<style>
+body { font-family: Arial; margin:0; background:#111; color:white;}
+nav { display:flex; justify-content:space-around; background:#1e1e1e; padding:10px;}
+nav button { background:none; border:none; color:white; font-size:14px;}
+.section { display:none; padding:20px;}
+.active { display:block;}
+.card { background:#1e1e1e; padding:15px; margin:10px 0; border-radius:10px;}
+input, select { margin:5px 0; padding:5px;}
+button.primary { background:#4CAF50; border:none; padding:6px 10px; color:white; border-radius:5px; margin:3px;}
+.small { font-size:12px; color:#aaa;}
+.setDone { text-decoration: line-through; color:#4CAF50;}
+.timer { font-size:16px; color:#4CAF50; font-weight:bold;}
+</style>
+</head>
+<body>
+
+<nav>
+<button onclick="show('edit')">Edit Workouts</button>
+<button onclick="show('workout')">Workout</button>
+<button onclick="show('history')">History</button>
+<button onclick="show('progression')">Progression</button>
+</nav>
+
+<!-- EDIT -->
+<div id="edit" class="section active">
+<h2>Edit Workouts</h2>
+<input id="newWorkoutName" placeholder="Workout Name">
+<button class="primary" onclick="addWorkout()">Add Workout</button>
+<div id="workoutList"></div>
+</div>
+
+<!-- WORKOUT -->
+<div id="workout" class="section">
+<h2>Workout</h2>
+<select id="workoutSelect" onchange="loadWorkout()"></select>
+<div id="exerciseArea"></div>
+
+<div>
+<label>Pausen-Timer (Sek): 
+<input type="number" id="restTime" value="60" style="width:60px">
+</label>
+<button class="primary" onclick="startTimer()">Start</button>
+<span id="timerDisplay" class="timer"></span>
+</div>
+
+<button class="primary" onclick="finishWorkout()">Finish Workout</button>
+</div>
+
+<!-- HISTORY -->
+<div id="history" class="section">
+<h2>History</h2>
+<div id="historyList"></div>
+</div>
+
+<!-- PROGRESSION -->
+<div id="progression" class="section">
+<h2>Progression</h2>
+<div id="progressionList"></div>
+</div>
+
+<script>
+
+let workouts = JSON.parse(localStorage.getItem("workouts")) || [];
+let history = JSON.parse(localStorage.getItem("history")) || [];
+let editHistoryIndex = null;
+let timerInterval;
+
+// ---------------- SAVE ----------------
+function saveAll(){
+localStorage.setItem("workouts", JSON.stringify(workouts));
+localStorage.setItem("history", JSON.stringify(history));
+}
+
+// ---------------- NAV ----------------
+function show(id){
+document.querySelectorAll(".section").forEach(s=>s.classList.remove("active"));
+document.getElementById(id).classList.add("active");
+
+if(id==="workout") updateWorkoutSelect();
+if(id==="history") renderHistory();
+if(id==="progression") renderProgression();
+}
+
+// ---------------- EDIT WORKOUTS ----------------
+function addWorkout(){
+let name=document.getElementById("newWorkoutName").value;
+if(!name) return;
+workouts.push({name, exercises:[]});
+saveAll();
+renderWorkouts();
+}
+
+function renderWorkouts(){
+let list=document.getElementById("workoutList");
+list.innerHTML="";
+workouts.forEach((w,i)=>{
+let div=document.createElement("div");
+div.className="card";
+div.innerHTML=`
+<b>${w.name}</b>
+<button onclick="deleteWorkout(${i})">Delete</button><br>
+
+<input placeholder="Exercise name" id="ex_${i}">
+<input type="number" placeholder="Sets" id="sets_${i}" style="width:60px">
+<input type="number" placeholder="Reps" id="reps_${i}" style="width:60px">
+<input type="number" placeholder="Weight" id="weight_${i}" style="width:70px">
+<button onclick="addExercise(${i})">Add</button>
+
+<div class="small">
+${w.exercises.map((e,ei)=>`
+<input value="${e.name}" onchange="editExercise(${i},${ei},'name',this.value)" style="width:100px;">
+S:<input type="number" value="${e.sets}" onchange="editExercise(${i},${ei},'sets',this.value)" style="width:40px;">
+R:<input type="number" value="${e.reps}" onchange="editExercise(${i},${ei},'reps',this.value)" style="width:40px;">
+W:<input type="number" value="${e.weight}" onchange="editExercise(${i},${ei},'weight',this.value)" style="width:50px;">
+<button onclick="deleteExercise(${i},${ei})">X</button>
+<br>
+`).join('')}
+</div>
+`;
+list.appendChild(div);
+});
+}
+
+function addExercise(i){
+let name=document.getElementById("ex_"+i).value;
+let sets=parseInt(document.getElementById("sets_"+i).value);
+let reps=parseInt(document.getElementById("reps_"+i).value);
+let weight=parseFloat(document.getElementById("weight_"+i).value);
+if(!name||!sets||!reps||!weight) return;
+workouts[i].exercises.push({name,sets,reps,weight});
+saveAll();
+renderWorkouts();
+}
+
+function editExercise(wi,ei,field,value){
+if(field==="sets"||field==="reps") value=parseInt(value);
+if(field==="weight") value=parseFloat(value);
+workouts[wi].exercises[ei][field]=value;
+saveAll();
+}
+
+function deleteExercise(wi,ei){
+workouts[wi].exercises.splice(ei,1);
+saveAll();
+renderWorkouts();
+}
+
+function deleteWorkout(i){
+workouts.splice(i,1);
+saveAll();
+renderWorkouts();
+}
+
+// ---------------- WORKOUT ----------------
+function updateWorkoutSelect(){
+let select=document.getElementById("workoutSelect");
+select.innerHTML="";
+workouts.forEach((w,i)=>{
+select.innerHTML+=`<option value="${i}">${w.name}</option>`;
+});
+loadWorkout();
+}
+
+function loadWorkout(){
+let index=document.getElementById("workoutSelect").value;
+if(index===null) return;
+let area=document.getElementById("exerciseArea");
+area.innerHTML="";
+
+workouts[index].exercises.forEach((e,ei)=>{
+area.innerHTML+=`
+<div class="card">
+<b>${e.name}</b><br>
+${Array(e.sets).fill(0).map((_,si)=>`
+<div id="set_${ei}_${si}">
+Set ${si+1}:
+<input type="number" value="${e.weight}" class="weight" data-ei="${ei}" data-si="${si}" style="width:50px;">kg
+x
+<input type="number" value="${e.reps}" class="reps" data-ei="${ei}" data-si="${si}" style="width:40px;">
+<input type="checkbox" onchange="toggleSet(${ei},${si},this)">
+</div>
+`).join('')}
+</div>
+`;
+});
+
+editHistoryIndex = null;
+}
+
+// Set optisch markieren
+function toggleSet(ei,si,cb){
+let div=document.getElementById(`set_${ei}_${si}`);
+if(cb.checked){
+div.classList.add("setDone");
+}else{
+div.classList.remove("setDone");
+}
+}
+
+// ---------------- TIMER ----------------
+function startTimer(){
+clearInterval(timerInterval);
+let seconds=parseInt(document.getElementById("restTime").value);
+let display=document.getElementById("timerDisplay");
+display.textContent=seconds+"s";
+
+timerInterval=setInterval(()=>{
+seconds--;
+display.textContent=seconds+"s";
+if(seconds<=0){
+clearInterval(timerInterval);
+alert("Pause vorbei");
+}
+},1000);
+}
+
+// ---------------- FINISH ----------------
+function finishWorkout(){
+let index=document.getElementById("workoutSelect").value;
+let completed=[];
+
+workouts[index].exercises.forEach((e,ei)=>{
+let sets=[];
+for(let si=0;si<e.sets;si++){
+let weight=document.querySelector(`.weight[data-ei='${ei}'][data-si='${si}']`).value;
+let reps=document.querySelector(`.reps[data-ei='${ei}'][data-si='${si}']`).value;
+let done=document.querySelector(`#set_${ei}_${si} input[type=checkbox]`).checked;
+sets.push({weight:parseFloat(weight),reps:parseInt(reps),done});
+}
+completed.push({name:e.name,sets});
+});
+
+let entry={date:new Date(),workout:workouts[index].name,exercises:completed};
+
+if(editHistoryIndex!==null){
+history[editHistoryIndex]=entry;
+alert("Workout aktualisiert");
+}else{
+history.push(entry);
+alert("Workout gespeichert");
+}
+
+saveAll();
+editHistoryIndex=null;
+}
+
+// ---------------- HISTORY ----------------
+function renderHistory(){
+let list=document.getElementById("historyList");
+list.innerHTML="";
+history.slice().reverse().forEach((h,revIndex)=>{
+let realIndex=history.length-1-revIndex;
+list.innerHTML+=`
+<div class="card">
+<b>${h.workout}</b><br>
+${new Date(h.date).toLocaleDateString()}<br>
+<div class="small">
+${h.exercises.map(e=>e.sets.map((s,i)=>`${e.name} Set ${i+1}: ${s.weight}kg x ${s.reps} ${s.done?"✔":"✖"}`).join("<br>")).join("<br>")}
+</div>
+<button class="primary" onclick="editHistory(${realIndex})">Edit</button>
+<button class="primary" onclick="deleteHistory(${realIndex})">Delete</button>
+</div>
+`;
+});
+}
+
+function deleteHistory(i){
+if(confirm("Wirklich löschen?")){
+history.splice(i,1);
+saveAll();
+renderHistory();
+}
+}
+
+function editHistory(i){
+let entry=history[i];
+let workoutIndex=workouts.findIndex(w=>w.name===entry.workout);
+if(workoutIndex===-1){alert("Plan existiert nicht mehr");return;}
+
+show("workout");
+document.getElementById("workoutSelect").value=workoutIndex;
+loadWorkout();
+
+entry.exercises.forEach((e,ei)=>{
+e.sets.forEach((s,si)=>{
+document.querySelector(`.weight[data-ei='${ei}'][data-si='${si}']`).value=s.weight;
+document.querySelector(`.reps[data-ei='${ei}'][data-si='${si}']`).value=s.reps;
+let cb=document.querySelector(`#set_${ei}_${si} input[type=checkbox]`);
+cb.checked=s.done;
+toggleSet(ei,si,cb);
+});
+});
+
+editHistoryIndex=i;
+}
+
+// ---------------- PROGRESSION ----------------
+function renderProgression(){
+let list=document.getElementById("progressionList");
+list.innerHTML="";
+let last=history[history.length-1];
+if(!last){list.innerHTML="Noch keine Daten";return;}
+
+last.exercises.forEach(e=>{
+e.sets.forEach((s,i)=>{
+if(!s.done) return;
+let rec=s.weight;
+if(s.reps>=12) rec+=2.5;
+list.innerHTML+=`
+<div class="card">
+<b>${e.name} Set ${i+1}</b><br>
+Letztes: ${s.weight}kg x ${s.reps}<br>
+Empfehlung: ${rec}kg
+</div>
+`;
+});
+});
+}
+
+renderWorkouts();
+
+</script>
+</body>
+</html>
